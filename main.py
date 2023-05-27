@@ -1,6 +1,7 @@
 import logging
 import os
 from telegram import Update
+from telegram.ext import JobQueue
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
 
 logging.basicConfig(
@@ -65,36 +66,47 @@ async def delete_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Process user's message based on the command
     command = context.user_data.get('command')
-    if command == 'add':
-        # Add the item to the shopping list
-        item = update.message.text
-        shopping_list.append(item)
-        await save_shopping_list()
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Added '{item}' to the shopping list.")
-    elif command == 'del':
-        # Remove the item from the shopping list by index
-        try:
-            index = int(update.message.text) - 1
-            item = shopping_list.pop(index)
+    if command is not None:
+        if command == 'add':
+            # Add the item to the shopping list
+            item = update.message.text
+            shopping_list.append(item)
             await save_shopping_list()
-            await context.bot.send_message(chat_id=update.effective_chat.id,
-                                           text=f"Removed '{item}' from the shopping list.")
-        except (ValueError, IndexError):
-            await context.bot.send_message(chat_id=update.effective_chat.id,
-                                           text="Invalid index provided or item not found in the shopping list.")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Added '{item}' to the shopping list.")
+        elif command == 'del':
+            # Remove the item from the shopping list by index
+            try:
+                index = int(update.message.text) - 1
+                item = shopping_list.pop(index)
+                await save_shopping_list()
+                await context.bot.send_message(chat_id=update.effective_chat.id,
+                                               text=f"Removed '{item}' from the shopping list.")
+            except (ValueError, IndexError):
+                await context.bot.send_message(chat_id=update.effective_chat.id,
+                                               text="Invalid index provided or item not found in the shopping list.")
 
-    # Delete the command message and related messages
-    command_message_id = context.user_data.get('message_to_delete')
-    if command_message_id:
-        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=command_message_id)
-    list_message = context.user_data.pop('list_message_to_delete', None)
-    if list_message:
-        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=list_message.message_id)
-    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+        # Delete the command message and related messages
+        command_message_id = context.user_data.get('message_to_delete')
+        if command_message_id:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=command_message_id)
+        list_message = context.user_data.pop('list_message_to_delete', None)
+        if list_message:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=list_message.message_id)
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
-    # Clear the command and message to delete from user data
-    context.user_data.pop('command', None)
-    context.user_data.pop('message_to_delete', None)
+        # Clear the command and message to delete from user data
+        context.user_data.pop('command', None)
+        context.user_data.pop('message_to_delete', None)
+
+
+async def send_shopping_list(context: ContextTypes.DEFAULT_TYPE):
+    # Check if the shopping list is empty
+    if not shopping_list:
+        await context.bot.send_message(chat_id=context.job.context, text="The shopping list is empty.")
+    else:
+        # Send the current shopping list with indices
+        message = "\n".join(f"{i + 1}: {item}" for i, item in enumerate(shopping_list))
+        await context.bot.send_message(chat_id=context.job.context, text=message)
 
 
 async def view_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
