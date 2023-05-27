@@ -58,8 +58,8 @@ async def delete_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['message_to_delete'] = message.message_id
     # Delete the command message (/del)
     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
-    # Delete the list message
-    context.user_data['list_message_to_delete'] = list_message.message_id
+    # Return the list message to delete
+    return list_message
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -78,7 +78,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             item = shopping_list.pop(index)
             await save_shopping_list()
             await context.bot.send_message(chat_id=update.effective_chat.id,
-                                           text=f"Removed {item} from the shopping list.")
+                                           text=f"Removed '{item}' from the shopping list.")
         except (ValueError, IndexError):
             await context.bot.send_message(chat_id=update.effective_chat.id,
                                            text="Invalid index provided or item not found in the shopping list.")
@@ -87,15 +87,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     command_message_id = context.user_data.get('message_to_delete')
     if command_message_id:
         await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=command_message_id)
-    list_message_id = context.user_data.get('list_message_to_delete')
-    if list_message_id:
-        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=list_message_id)
+    list_message = context.user_data.pop('list_message_to_delete', None)
+    if list_message:
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=list_message.message_id)
     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
     # Clear the command and message to delete from user data
     context.user_data.pop('command', None)
     context.user_data.pop('message_to_delete', None)
-    context.user_data.pop('list_message_to_delete', None)
 
 
 async def view_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -105,7 +104,14 @@ async def view_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # Send the current shopping list with indices
         message = "\n".join(f"{i + 1}: {item}" for i, item in enumerate(shopping_list))
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=message)
+        list_message = await context.bot.send_message(chat_id=update.effective_chat.id, text=message)
+        # Store the list message in user data
+        context.user_data['list_message_to_delete'] = list_message
+
+        # Return the list message
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+        return list_message
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
 
 if __name__ == '__main__':
