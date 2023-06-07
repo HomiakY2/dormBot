@@ -1,107 +1,147 @@
+# -*- coding: utf-8 -*-
 import logging
 import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, Application
-from datetime import time
+from datetime import datetime, time
 from zoneinfo import ZoneInfo
-from datetime import datetime, timedelta
-import datetime
+from datetime import timedelta
+import aiogram
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# logging.basicConfig(
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+#     level=logging.INFO
+# )
+
+# Set up logging
+logger = logging.getLogger('user_actions')
+logger.setLevel(logging.INFO)
+
+# Create a file handler
+handler = logging.FileHandler('user_actions.txt')
+handler.setLevel(logging.INFO)
+
+# Create a logging format
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(message)s')
+handler.setFormatter(formatter)
+
+# Add the handlers to the logger
+logger.addHandler(handler)
+
+def log_user_action(update, command):
+    user_id = update.effective_user.id
+    action = f"User {user_id} issued command {command}"
+    logger.info(action)
+
 
 # Initialize the shopping list as an empty list
-shopping_list = []
-queue = []
+def load_list_from_file(file_name):
+    if os.path.exists(file_name):
+        with open(file_name, 'r') as file:
+            return [line.strip() for line in file.readlines()]
+    else:
+        return []
+
+
 SHOPPING_LIST_FILE = 'shopping_list.txt'
 QUEUE_LIST_FILE = 'queue_list.txt'
+WATER_LIST_FILE = 'water_list.txt'
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="I'm a bot, please talk to me!")
-    job_repeat.enabled = False
-
-
-if os.path.exists(SHOPPING_LIST_FILE):
-    with open(SHOPPING_LIST_FILE, 'r') as file:
-        shopping_list = [line.strip() for line in file.readlines()]
-else:
-    shopping_list = []
-
-if os.path.exists(QUEUE_LIST_FILE):
-    with open(QUEUE_LIST_FILE, 'r') as file:
-        queue = [line.strip() for line in file.readlines()]
-else:
-    queue = []
+shopping_list = load_list_from_file(SHOPPING_LIST_FILE)
+queue = load_list_from_file(QUEUE_LIST_FILE)
+water = load_list_from_file(WATER_LIST_FILE)
+repeating_job = None
 
 
-async def save_shopping_list():
-    # Save the shopping list to the file
-    with open(SHOPPING_LIST_FILE, 'w') as file:
-        for item in shopping_list:
+
+def get_next_run_time(hours=24):
+    # Get the current time
+    now = datetime.now()
+    # Calculate the next run time
+    next_run_time = datetime(now.year, now.month, now.day, 12) + timedelta(hours=hours)
+    # If the next run time is in the past, add 24 hours to it
+    if next_run_time <= now:
+        next_run_time += timedelta(hours=24)
+    return next_run_time
+
+
+async def complete_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global repeating_job
+    # If the repeating job is currently running, stop it
+    if repeating_job is not None:
+        repeating_job.schedule_removal()
+        repeating_job = None
+        if queue:
+            queue.append(queue.pop(0))
+            await save_list_to_file(queue, QUEUE_LIST_FILE)
+        log_user_action(update, '/complete')
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Черга успішно виконана!")
+        # Schedule the next message at 12:00 in 48 hours
+        next_run_time = get_next_run_time(hours=48)
+        repeating_job = job_queue.run_once(callback_minute, next_run_time)
+    else:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Черга сьогодні вже виконана!")
+
+
+async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global repeating_job
+    # If the repeating job is currently running, stop it
+    if repeating_job is not None:
+        repeating_job.schedule_removal()
+        repeating_job = None
+        log_user_action(update, '/skip')
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Черга успішно пропущена!")
+        # Schedule the next message at 12:00 tomorrow
+        next_run_time = get_next_run_time(hours=24)
+        repeating_job = job_queue.run_once(callback_minute, next_run_time)
+    else:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Черга сьогодні вже пропущена!")
+
+
+# async def save_shopping_list():
+#     # Save the shopping list to the file
+#     with open(SHOPPING_LIST_FILE, 'w') as file:
+#         for item in shopping_list:
+#             file.write(item + '\n')
+#
+#
+# async def save_queue_list():
+#     # Save the shopping list to the file
+#     with open(QUEUE_LIST_FILE, 'w') as file:
+#         for item in queue:
+#             file.write(item + '\n')
+#
+#
+# async def save_water_list():
+#     # Save the shopping list to the file
+#     with open(WATER_LIST_FILE, 'w') as file:
+#         for item in water:
+#             file.write(item + '\n')
+
+
+async def save_list_to_file(list_to_save, file_name):
+    # Save the list to the file
+    with open(file_name, 'w') as file:
+        for item in list_to_save:
             file.write(item + '\n')
-
-
-async def save_queue_list():
-    # Save the shopping list to the file
-    with open(QUEUE_LIST_FILE, 'w') as file:
-        for item in queue:
-            file.write(item + '\n')
-
 
 async def clear_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Clear the shopping list
     shopping_list.clear()
-    await save_shopping_list()
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="Cleared the shopping list.")
+    log_user_action(update, '/clear')
+    await save_list_to_file(shopping_list, SHOPPING_LIST_FILE)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Список покупок очищений.")
     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
 
-async def add_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Request the item to add from the user
-    message = await context.bot.send_message(chat_id=update.effective_chat.id, text="Enter the item to add:")
-    context.user_data['command'] = 'add'
-    context.user_data['message_to_delete'] = message.message_id
-    # Delete the command message (/add)
+async def clear_water_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Clear the shopping list
+    water.clear()
+    await save_list_to_file(water, WATER_LIST_FILE)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Список черги на воду очищений.")
     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
 
-async def add_people(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Request the item to add from the user
-    message = await context.bot.send_message(chat_id=update.effective_chat.id, text="Enter the people to add:")
-    context.user_data['command'] = 'qadd'
-    context.user_data['message_to_delete'] = message.message_id
-    # Delete the command message (/add)
-    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
-
-
-async def delete_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Display the current shopping list
-    list_message = await view_list(update, context)
-    # Request the index of the item to delete from the user
-    message = await context.bot.send_message(chat_id=update.effective_chat.id,
-                                             text="Enter the index of the item to delete:")
-    context.user_data['command'] = 'del'
-    context.user_data['message_to_delete'] = message.message_id
-    # Delete the command message (/del)
-    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
-    # Return the list message to delete
-    return list_message
-
-
-async def delete_people(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Display the current shopping list
-    queue_message = await view_queue(update, context)
-    # Request the index of the item to delete from the user
-    message = await context.bot.send_message(chat_id=update.effective_chat.id,
-                                             text="Enter the index of the peole to delete:")
-    context.user_data['command'] = 'qdel'
-    context.user_data['message_to_delete'] = message.message_id
-    # Delete the command message (/qdel)
-    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
-    # Return the list message to delete
-    return queue_message
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -115,49 +155,79 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Add the item to the shopping list
             item = update.message.text
             shopping_list.append(item)
-            await save_shopping_list()
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Added '{item}' to the shopping list.")
+            await save_list_to_file(shopping_list, SHOPPING_LIST_FILE)
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Добавлено '{item}' до списку покупок.")
         elif command == 'del':
             # Remove the item from the shopping list by index
             try:
                 index = int(update.message.text) - 1
                 item = shopping_list.pop(index)
-                await save_shopping_list()
+                await save_list_to_file(shopping_list, SHOPPING_LIST_FILE)
                 await context.bot.send_message(chat_id=update.effective_chat.id,
-                                               text=f"Removed '{item}' from the shopping list.")
+                                               text=f"Видалено '{item}' зі списку покупок.")
             except (ValueError, IndexError):
                 await context.bot.send_message(chat_id=update.effective_chat.id,
-                                               text="Invalid index provided or item not found in the shopping list.")
+                                               text="Вказано неправильний індекс!")
 
         if command == 'qadd':
             # Add the item to the shopping list
             item = update.message.text
             queue.append(item)
-            await save_queue_list()
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Added '{item}' to the queue.")
+            await save_list_to_file(queue, QUEUE_LIST_FILE)
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Людину '{item}' додано до черги.")
         elif command == 'qdel':
             # Remove the item from the queue by index
             try:
                 index = int(update.message.text) - 1
                 item = queue.pop(index)
-                await save_queue_list()
+                await save_list_to_file(queue, QUEUE_LIST_FILE)
                 await context.bot.send_message(chat_id=update.effective_chat.id,
-                                               text=f"Removed '{item}' from the queue.")
+                                               text=f"Людину '{item}' вилучено з черги.")
             except (ValueError, IndexError):
                 await context.bot.send_message(chat_id=update.effective_chat.id,
-                                               text="Invalid index provided or item not found in the queue.")
+                                               text="Вказано неправильний індекс!")
+
+        if command == 'wadd':
+            # Add the item to the shopping list
+            item = update.message.text
+            water.append(item)
+            await save_list_to_file(water, WATER_LIST_FILE)
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Людину '{item}' додано до черги.")
+        elif command == 'wdel':
+            # Remove the item from the queue by index
+            try:
+                index = int(update.message.text) - 1
+                item = water.pop(index)
+                await save_list_to_file(water, WATER_LIST_FILE)
+                await context.bot.send_message(chat_id=update.effective_chat.id,
+                                               text=f"Людину '{item}' вилучено з черги.")
+            except (ValueError, IndexError):
+                await context.bot.send_message(chat_id=update.effective_chat.id,
+                                               text="Вказано неправильний індекс!")
 
         if command == 'swap':
             # Swap the people in the queue by indices
             try:
                 index1, index2 = map(int, update.message.text.split())
                 queue[index1 - 1], queue[index2 - 1] = queue[index2 - 1], queue[index1 - 1]
-                await save_queue_list()
+                await save_list_to_file(queue, QUEUE_LIST_FILE)
                 await context.bot.send_message(chat_id=update.effective_chat.id,
-                                               text=f"Swapped people at positions {index1} and {index2} in the queue.")
+                                               text=f"Помінялися люди на позиціях {index1} та {index2} у черзі.")
             except (ValueError, IndexError):
                 await context.bot.send_message(chat_id=update.effective_chat.id,
-                                               text="Invalid indices provided or people not found in the queue.")
+                                               text="Надані невірні індекси в черзі.")
+
+        if command == 'wswap':
+            # Swap the people in the queue by indices
+            try:
+                index1, index2 = map(int, update.message.text.split())
+                water[index1 - 1], water[index2 - 1] = water[index2 - 1], water[index1 - 1]
+                await save_list_to_file(water, WATER_LIST_FILE)
+                await context.bot.send_message(chat_id=update.effective_chat.id,
+                                               text=f"Помінялися люди на позиціях {index1} та {index2} у черзі.")
+            except (ValueError, IndexError):
+                await context.bot.send_message(chat_id=update.effective_chat.id,
+                                               text="Надані невірні індекси в черзі.")
 
         # Delete the command message and related messages
 
@@ -169,12 +239,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=list_message.message_id)
         await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
-        # queue_message = context.user_data.pop('queue_message_to_delete', None)
-        # if queue_message:
-        #     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=list_message.message_id)
-        # await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
-
-
         # Clear the command and message to delete from user data
         context.user_data.pop('command', None)
         context.user_data.pop('message_to_delete', None)
@@ -183,17 +247,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_shopping_list(context: ContextTypes.DEFAULT_TYPE):
     # Check if the shopping list is empty
     if not shopping_list:
-        await context.bot.send_message(chat_id=context.job.context, text="The shopping list is empty.")
+        await context.bot.send_message(chat_id=context.job.context, text="Список покупок порожній.")
     else:
         # Send the current shopping list with indices
         message = "\n".join(f"{i + 1}: {item}" for i, item in enumerate(shopping_list))
+        await context.bot.send_message(chat_id=context.job.context, text=message)
+
+async def send_water_list(context: ContextTypes.DEFAULT_TYPE):
+    # Check if the shopping list is empty
+    if not water:
+        await context.bot.send_message(chat_id=context.job.context, text="Список покупок порожній.")
+    else:
+        # Send the current shopping list with indices
+        message = "\n".join(f"{i + 1}: {item}" for i, item in enumerate(water))
         await context.bot.send_message(chat_id=context.job.context, text=message)
 
 
 async def send_queue(context: ContextTypes.DEFAULT_TYPE):
     # Check if the queue is empty
     if not queue:
-        await context.bot.send_message(chat_id=context.job.context, text="The queue list is empty.")
+        await context.bot.send_message(chat_id=context.job.context, text="Список черги порожній.")
     else:
         # Send the current shopping list with indices
         message = "\n".join(f"{i + 1}: {item}" for i, item in enumerate(queue))
@@ -205,7 +278,8 @@ async def swap_people(update: Update, context: ContextTypes.DEFAULT_TYPE):
     queue_message = await view_queue(update, context)
     # Request the indices of the people to swap from the user
     message = await context.bot.send_message(chat_id=update.effective_chat.id,
-                                             text="Enter in order the 2 indexes you want to swap:")
+                                             text="Введіть по порядку 2 індекси, які ви хочете поміняти місцями:")
+    log_user_action(update, '/swap')
     context.user_data['command'] = 'swap'
     context.user_data['message_to_delete'] = message.message_id
     # Delete the command message (/swap)
@@ -214,10 +288,25 @@ async def swap_people(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return queue_message
 
 
+async def swap_people_for_water(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Display the current queue
+    water_message = await view_water(update, context)
+    # Request the indices of the people to swap from the user
+    message = await context.bot.send_message(chat_id=update.effective_chat.id,
+                                             text="Введіть по порядку 2 індекси, які ви хочете поміняти місцями:")
+    log_user_action(update, '/wswap')
+    context.user_data['command'] = 'wswap'
+    context.user_data['message_to_delete'] = message.message_id
+    # Delete the command message (/swap)
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+    # Return the queue message to delete
+    return water_message
+
+
 async def view_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if the shopping list is empty
     if not shopping_list:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="The shopping list is empty.")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Список покупок порожній.")
     else:
         # Send the current shopping list with indices
         message = "\n".join(f"{i + 1}: {item}" for i, item in enumerate(shopping_list))
@@ -230,11 +319,10 @@ async def view_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
 
-
 async def view_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if the queue is empty
     if not queue:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="The queue is empty.")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Черга порожня.")
     else:
         # Send the current queue with indices
         message = "\n".join(f"{i + 1}: {item}" for i, item in enumerate(queue))
@@ -248,59 +336,153 @@ async def view_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
 
-async def send_first_person(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def view_water(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if the queue is empty
-    if not queue:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="The queue is empty.")
+    if not water:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Черга порожня.")
     else:
-        # Send the person at the first index of the queue
-        message = f"Person at the first index of the queue: {queue[0]}"
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=message)
+        # Send the current queue with indices
+        message = "\n".join(f"{i + 1}: {item}" for i, item in enumerate(water))
+        water_message = await context.bot.send_message(chat_id=update.effective_chat.id, text=message)
+        # Store the list message in user data
+        context.user_data['queue_message_to_delete'] = water_message
 
+        # Return the list message
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+        return water_message
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+
+
+# треба побавитись! #
 
 async def callback_minute(context):
     if not queue:
-        await context.bot.send_message(chat_id='@hostel5517', text='The queue is empty.')
+        await context.bot.send_message(chat_id='@hostel5517', text='Черга порожня.')
     else:
         # Send the person at the first index of the queue
-        message = f"Person at the first index of the queue: {queue[0]}"
+        message = f"Уйобок, {queue[0]}, прибирай, заїбав."
         await context.bot.send_message(chat_id='@hostel5517', text=message)
 
 
 async def callback_repeat(context):
-    job_minute = job_queue.run_repeating(callback_minute, interval=10, first=1)
+    global repeating_job
+    repeating_job = job_queue.run_repeating(callback_minute, interval=5, first=1)
+
+
+async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Get the command that was issued
+    command = update.message.text.split()[0].split('@')[0][1:]
+    # Check the command and set the appropriate value in context.user_data['command']
+    if command == 'add':
+        message_text = "Введіть предмет для додавання:"
+        log_user_action(update, '/add')
+        context.user_data['command'] = 'add'
+    elif command == 'qadd':
+        message_text = "Введіть людину для додавання:"
+        log_user_action(update, '/qadd')
+        context.user_data['command'] = 'qadd'
+    elif command == 'wadd':
+        message_text = "Введіть людей для списку черги:"
+        log_user_action(update, '/wadd')
+        context.user_data['command'] = 'wadd'
+    else:
+        # If the command is not recognized, return
+        return
+
+    # Send the appropriate message to the user
+    message = await context.bot.send_message(chat_id=update.effective_chat.id, text=message_text)
+    context.user_data['message_to_delete'] = message.message_id
+
+    # Delete the command message
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+
+
+async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Get the command that was issued
+    command = update.message.text.split()[0].split('@')[0][1:]
+    # Check the command and set the appropriate value in context.user_data['command']
+    if command == 'del':
+        await view_list(update, context)
+        message_text = "Введіть індекс предмета для видалення:"
+        log_user_action(update, '/del')
+        context.user_data['command'] = 'del'
+    elif command == 'qdel':
+        await view_queue(update, context)
+        log_user_action(update, '/qdel')
+        message_text = "Введіть індекс людини для виводу:"
+        context.user_data['command'] = 'qdel'
+    elif command == 'wdel':
+        await view_water(update, context)
+        log_user_action(update, '/wdel')
+        message_text = "Введіть індекс предмета для видалення:"
+        context.user_data['command'] = 'wdel'
+    else:
+        # If the command is not recognized, return
+        return
+
+    # Send the appropriate message to the user
+    message = await context.bot.send_message(chat_id=update.effective_chat.id, text=message_text)
+    context.user_data['message_to_delete'] = message.message_id
+
+    # Delete the command message
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+
+
+async def list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Get the command that was issued
+
+    command = update.message.text.split()[0].split('@')[0][1:]
+    # Check the command and set the appropriate value in context.user_data['command']
+    if command == 'list':
+        log_user_action(update, '/list')
+        await view_list(update, context)
+    elif command == 'qlist':
+        log_user_action(update, '/qlist')
+        await view_queue(update, context)
+    elif command == 'wlist':
+        log_user_action(update, '/wlist')
+        await view_water(update, context)
+    else:
+        # If the command is not recognized, return
+        return
+
+    # Delete the command message
+    #await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
 
 if __name__ == '__main__':
+    t = time(14, 10, 50, 000000, tzinfo=ZoneInfo("Europe/Kyiv"))
+
     application = ApplicationBuilder().token('6254290442:AAE0yr5QjX_Rxft3Am-zAtbTsNLcUDtkxm4').build()
     job_queue = application.job_queue
-    #job_minute = job_queue.run_repeating(callback_minute, interval=10, first=1)
 
-    timer = time(hour=21, minute=36, second=00)
-    #timer = time(11, 34, 56)
-    #print(time)
-    job_repeat = job_queue.run_daily(callback_repeat, time(hour=21, minute=39, second=30))
+    job_queue.run_daily(callback_repeat, t)
 
-    start_handler = CommandHandler('start', start)
-    add_item_handler = CommandHandler('add', add_item)
-    delete_item_handler = CommandHandler('del', delete_item)
-    view_list_handler = CommandHandler('list', view_list)
+    skip_handler = CommandHandler('skip', skip)
     clear_list_handler = CommandHandler('clear', clear_list)
-    add_people_handler = CommandHandler('qadd', add_people)
-    delete_people_handler = CommandHandler('qdel', delete_people)
-    view_people_handler = CommandHandler('qlist', view_queue)
     swap_people_handler = CommandHandler('swap', swap_people)
+    swap_people_for_water_handler = CommandHandler('wswap', swap_people_for_water)
+    complete_queue_handler = CommandHandler('complete', complete_queue)
+    clear_water_handler = CommandHandler('wclear', clear_water_list)
+    add_handler = CommandHandler(['add', 'qadd', 'wadd'], add)
+    delete_handler = CommandHandler(['del', 'qdel', 'wdel'], delete)
+    list_handler = CommandHandler(['list', 'qlist', 'wlist'], list)
+
     message_handler = MessageHandler(None, handle_message)
 
-    application.add_handler(start_handler)
-    application.add_handler(add_item_handler)
-    application.add_handler(delete_item_handler)
-    application.add_handler(view_list_handler)
+    application.add_handler(list_handler)
+    application.add_handler(swap_people_for_water_handler)
+    application.add_handler(delete_handler)
+    application.add_handler(add_handler)
+    application.add_handler(skip_handler)
     application.add_handler(clear_list_handler)
-    application.add_handler(add_people_handler)
-    application.add_handler(delete_people_handler)
-    application.add_handler(view_people_handler)
     application.add_handler(swap_people_handler)
+    application.add_handler(complete_queue_handler)
+    application.add_handler(clear_water_handler)
     application.add_handler(message_handler)
+
+    # Now you can use logger.info(), logger.warning(), etc. to write logs to the file
+    # logger.info('This is an info log')
+    # logger.warning('This is a warning log')
 
     application.run_polling()

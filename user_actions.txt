@@ -1,0 +1,10 @@
+2023-06-07 14:33:39,445 - user_actions - User 428077041 issued command /list
+2023-06-07 14:33:46,292 - user_actions - User 428077041 issued command /qlist
+2023-06-07 14:34:01,242 - user_actions - User 428077041 issued command /list
+2023-06-07 14:34:10,684 - user_actions - User 428077041 issued command /qlist
+2023-06-07 14:35:03,093 - user_actions - User 737083415 issued command /list
+2023-06-07 14:35:43,748 - user_actions - User 737083415 issued command /qlist
+2023-06-07 14:46:25,393 - user_actions - User 428077041 issued command /add
+2023-06-07 14:46:43,612 - user_actions - User 428077041 issued command /swap
+2023-06-07 14:46:56,865 - user_actions - User 428077041 issued command /list
+2023-06-07 14:47:01,031 - user_actions - User 428077041 issued command /qlist
