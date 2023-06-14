@@ -6,19 +6,13 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Messa
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 from datetime import timedelta
-import aiogram
-
-# logging.basicConfig(
-#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-#     level=logging.INFO
-# )
 
 # Set up logging
 logger = logging.getLogger('user_actions')
 logger.setLevel(logging.INFO)
 
 # Create a file handler
-handler = logging.FileHandler('user_actions.txt')
+handler = logging.FileHandler("D://c for university//2 семестр лабки//Курсова ООП//user_actions.log")
 handler.setLevel(logging.INFO)
 
 # Create a logging format
@@ -51,7 +45,7 @@ shopping_list = load_list_from_file(SHOPPING_LIST_FILE)
 queue = load_list_from_file(QUEUE_LIST_FILE)
 water = load_list_from_file(WATER_LIST_FILE)
 repeating_job = None
-
+repeating_job_water = None
 
 
 def get_next_run_time(hours=24):
@@ -98,32 +92,12 @@ async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Черга сьогодні вже пропущена!")
 
 
-# async def save_shopping_list():
-#     # Save the shopping list to the file
-#     with open(SHOPPING_LIST_FILE, 'w') as file:
-#         for item in shopping_list:
-#             file.write(item + '\n')
-#
-#
-# async def save_queue_list():
-#     # Save the shopping list to the file
-#     with open(QUEUE_LIST_FILE, 'w') as file:
-#         for item in queue:
-#             file.write(item + '\n')
-#
-#
-# async def save_water_list():
-#     # Save the shopping list to the file
-#     with open(WATER_LIST_FILE, 'w') as file:
-#         for item in water:
-#             file.write(item + '\n')
-
-
 async def save_list_to_file(list_to_save, file_name):
     # Save the list to the file
     with open(file_name, 'w') as file:
         for item in list_to_save:
             file.write(item + '\n')
+
 
 async def clear_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Clear the shopping list
@@ -140,8 +114,6 @@ async def clear_water_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await save_list_to_file(water, WATER_LIST_FILE)
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Список черги на воду очищений.")
     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
-
-
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -253,6 +225,7 @@ async def send_shopping_list(context: ContextTypes.DEFAULT_TYPE):
         message = "\n".join(f"{i + 1}: {item}" for i, item in enumerate(shopping_list))
         await context.bot.send_message(chat_id=context.job.context, text=message)
 
+
 async def send_water_list(context: ContextTypes.DEFAULT_TYPE):
     # Check if the shopping list is empty
     if not water:
@@ -353,8 +326,6 @@ async def view_water(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
 
-# треба побавитись! #
-
 async def callback_minute(context):
     if not queue:
         await context.bot.send_message(chat_id='@hostel5517', text='Черга порожня.')
@@ -366,7 +337,7 @@ async def callback_minute(context):
 
 async def callback_repeat(context):
     global repeating_job
-    repeating_job = job_queue.run_repeating(callback_minute, interval=5, first=1)
+    repeating_job = job_queue.run_repeating(callback_minute, interval=3600, first=1)
 
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -446,12 +417,49 @@ async def list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # If the command is not recognized, return
         return
 
-    # Delete the command message
-    #await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+
+async def send_water_message(context: ContextTypes.DEFAULT_TYPE):
+    if water:
+        # Отримати першу людину зі списку water
+        first_person = water[0]
+        # Відправити повідомлення про першу людину
+        message = f"Перша людина в черзі на воду: {first_person}"
+        await context.bot.send_message(chat_id='@hostel5517', text=message)
+
+
+async def water_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global repeating_job_water
+    # Перевірте, чи repeating_job не запущено
+    if repeating_job_water is None:
+        # Запускаємо повторювану роботу на відправку повідомлення кожну годину
+        repeating_job_water = job_queue.run_repeating(send_water_message, interval=5, first=1)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Початок відправки повідомлень про чергу на воду.")
+    else:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Повідомлення про чергу на воду вже відправляються.")
+
+
+async def improve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Якщо у вас є якісь пропозиції для покращення бота, звертайтесь в приватні повідомллення @tesliam")
+
+
+async def water_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global repeating_job_water
+    # Перевірте, чи repeating_job запущено
+    if repeating_job_water is not None:
+        # Зупиняємо повторювану роботу
+        repeating_job_water.schedule_removal()
+        repeating_job_water = None
+        # Переміщуємо першу людину в кінець списку
+        if water:
+            first_person = water.pop(0)
+            water.append(first_person)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Зупинено відправку повідомлень про чергу на воду.")
+    else:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Відправка повідомлень про чергу на воду не запущена.")
 
 
 if __name__ == '__main__':
-    t = time(14, 10, 50, 000000, tzinfo=ZoneInfo("Europe/Kyiv"))
+    t = time(12, 00, 00, 000000, tzinfo=ZoneInfo("Europe/Kyiv"))
 
     application = ApplicationBuilder().token('6254290442:AAE0yr5QjX_Rxft3Am-zAtbTsNLcUDtkxm4').build()
     job_queue = application.job_queue
@@ -467,9 +475,15 @@ if __name__ == '__main__':
     add_handler = CommandHandler(['add', 'qadd', 'wadd'], add)
     delete_handler = CommandHandler(['del', 'qdel', 'wdel'], delete)
     list_handler = CommandHandler(['list', 'qlist', 'wlist'], list)
+    water_start_handler = CommandHandler('wstart', water_start)
+    water_stop_handler = CommandHandler('wstop', water_stop)
+    improve_handler = CommandHandler('improve', improve_command)
 
     message_handler = MessageHandler(None, handle_message)
 
+    application.add_handler(water_start_handler)
+    application.add_handler(improve_handler)
+    application.add_handler(water_stop_handler)
     application.add_handler(list_handler)
     application.add_handler(swap_people_for_water_handler)
     application.add_handler(delete_handler)
@@ -480,9 +494,5 @@ if __name__ == '__main__':
     application.add_handler(complete_queue_handler)
     application.add_handler(clear_water_handler)
     application.add_handler(message_handler)
-
-    # Now you can use logger.info(), logger.warning(), etc. to write logs to the file
-    # logger.info('This is an info log')
-    # logger.warning('This is a warning log')
 
     application.run_polling()
