@@ -9,10 +9,10 @@ from datetime import timedelta
 
 # Set up logging
 logger = logging.getLogger('user_actions')
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.INFO)  # D://c for university//2 семестр лабки//Курсова ООП//user_actions.log
 
 # Create a file handler
-handler = logging.FileHandler("D://c for university//2 семестр лабки//Курсова ООП//user_actions.log")
+handler = logging.FileHandler("user_actions.log")
 handler.setLevel(logging.INFO)
 
 # Create a logging format
@@ -77,6 +77,17 @@ async def complete_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Черга сьогодні вже виконана!")
 
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    log_user_action(update, '/start')
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Вітаю тебе у боті для управління завданнями та планування у спільному житловому середовищі")
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Введи в чат '/' для списку всіх можливостей бота")
+
+
+async def command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    log_user_action(update, '/command')
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="/start - привітання від бота \n/add - додати товар \n/del - видалити товар \n/list - переглянути список \n/clear - очистити список покупок \n/qadd - додати людину до черги(прибирання) \n/qdel - видалити людину з черги(прибирання) \n/qlist - переглянути список черги(прибирання) \n/swap - введіть два індекса для свапу людей(прибирання) \n/wswap - введіть два індекса для свапу людей(вода) \n/wclear - очистити чергу на воду \n/wadd - додати людину до черги(вода) \n/wdel - видалити людину з черги(вода) \n/wlist - переглянути список черги(вода) \n/skip - відкласти прибирання на 1 день \n/complete - підтвердити виконання прибирання \n/improve - отримати контакти розробника для пропозицій \n/command - вивід всіх команд бота")
+
+
 async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global repeating_job
     # If the repeating job is currently running, stop it
@@ -111,6 +122,7 @@ async def clear_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def clear_water_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Clear the shopping list
     water.clear()
+    log_user_action(update, '/wclear')
     await save_list_to_file(water, WATER_LIST_FILE)
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Список черги на воду очищений.")
     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
@@ -331,13 +343,18 @@ async def callback_minute(context):
         await context.bot.send_message(chat_id='@hostel5517', text='Черга порожня.')
     else:
         # Send the person at the first index of the queue
-        message = f"Уйобок, {queue[0]}, прибирай, заїбав."
+        message = f"Чому кімната не прибрана, {queue[0]}?"
         await context.bot.send_message(chat_id='@hostel5517', text=message)
 
 
 async def callback_repeat(context):
     global repeating_job
-    repeating_job = job_queue.run_repeating(callback_minute, interval=3600, first=1)
+    repeating_job = job_queue.run_repeating(callback_minute, interval=20, first=1)
+
+
+async def for_fun(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global repeating_job
+    repeating_job = job_queue.run_repeating(callback_minute, interval=20, first=1)
 
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -423,12 +440,13 @@ async def send_water_message(context: ContextTypes.DEFAULT_TYPE):
         # Отримати першу людину зі списку water
         first_person = water[0]
         # Відправити повідомлення про першу людину
-        message = f"Перша людина в черзі на воду: {first_person}"
+        message = f"По воду повинен іти користувач: {first_person}"
         await context.bot.send_message(chat_id='@hostel5517', text=message)
 
 
 async def water_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global repeating_job_water
+    log_user_action(update, '/wstart')
     # Перевірте, чи repeating_job не запущено
     if repeating_job_water is None:
         # Запускаємо повторювану роботу на відправку повідомлення кожну годину
@@ -439,11 +457,13 @@ async def water_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def improve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="Якщо у вас є якісь пропозиції для покращення бота, звертайтесь в приватні повідомллення @tesliam")
+    log_user_action(update, '/improve')
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Якщо у вас є якісь пропозиції для покращення бота, звертайтесь в приватні повідомлення @tesliam")
 
 
 async def water_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global repeating_job_water
+    log_user_action(update, '/wstop')
     # Перевірте, чи repeating_job запущено
     if repeating_job_water is not None:
         # Зупиняємо повторювану роботу
@@ -459,13 +479,14 @@ async def water_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 if __name__ == '__main__':
-    t = time(12, 00, 00, 000000, tzinfo=ZoneInfo("Europe/Kyiv"))
-
     application = ApplicationBuilder().token('6254290442:AAE0yr5QjX_Rxft3Am-zAtbTsNLcUDtkxm4').build()
-    job_queue = application.job_queue
 
+    t = time(12, 00, 00, 000000, tzinfo=ZoneInfo("Europe/Kyiv"))
+    job_queue = application.job_queue
     job_queue.run_daily(callback_repeat, t)
 
+    start_queue = CommandHandler('qstart', for_fun)
+    start_handler = CommandHandler('start', start)
     skip_handler = CommandHandler('skip', skip)
     clear_list_handler = CommandHandler('clear', clear_list)
     swap_people_handler = CommandHandler('swap', swap_people)
@@ -478,9 +499,13 @@ if __name__ == '__main__':
     water_start_handler = CommandHandler('wstart', water_start)
     water_stop_handler = CommandHandler('wstop', water_stop)
     improve_handler = CommandHandler('improve', improve_command)
+    command_handler = CommandHandler('command', command)
 
     message_handler = MessageHandler(None, handle_message)
 
+    application.add_handler(command_handler)
+    application.add_handler(start_queue)
+    application.add_handler(start_handler)
     application.add_handler(water_start_handler)
     application.add_handler(improve_handler)
     application.add_handler(water_stop_handler)
