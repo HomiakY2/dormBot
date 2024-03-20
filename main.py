@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 import os
-from telegram-bot import Update
+from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, Application
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
