@@ -4,9 +4,6 @@ FROM python:3.8-buster
 # Set the working directory in the Docker container
 WORKDIR /app
 
-# Copy your C++ source file and compile it
-COPY main.cpp /app
-RUN g++ -o dormbot_app main.cpp
 
 # Copy the Python source file
 COPY main.py /app
